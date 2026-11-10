@@ -1,0 +1,24 @@
+- 32-bit seed generation: Generated 32-bit unsigned integers via the first 4 bytes of sha256(team_id:salt) in big-endian order to guarantee deterministic cross-platform seeding without Python's randomized hash().
+- HMAC signature scope: Computed the HMAC-SHA256 signature over the base64-encoded JSON string to prevent serialization formatting discrepancies during code verification.
+- State file missing behavior: Automatically instantiated and saved a default MissionState to disk if the target state JSON file is absent upon load.
+- Leaderboard deduplication: Retained the record with the highest total score when encountering multiple verified submissions for the same team_id.
+- State attribute access: Enabled both attribute access and dict-style key subscripting on state dataclasses for user convenience in Jupyter notebooks.
+- Candidate planet distribution: Set exactly 40% (24 of 60) candidate stars to possess transits via a seeded shuffle for deterministic balance.
+- Phase fold binning: Binned phase into 40 equal bins over [-0.5, 0.5] filling empty bins with 0.0 and normalized by the flattened flux standard deviation.
+- Parallel feature caching: Employed joblib.Parallel across stars during build_survey to precompute and cache 46 BLS features within CPU budgets.
+- Telemetry channel signals: Configured nominal channel amplitudes (voltage: 1.0, temp: 1.2, rpm: 1.1, current: 0.9) with dual sinusoids (periods 200 and 47 steps) and 8% noise.
+- Overlapping alarm merging: Merged temporal window intervals [w*stride, w*stride+window] bridging gaps up to 2*stride (16 steps) into contiguous alarm runs to avoid fragmenting multi-window anomaly episodes.
+- Subsampled animation frames: Limited animation frames to at most 60 frames in animate_stream to ensure fast, dependency-free JSHTML rendering in Colab.
+- Total flux profile scaling: Normalized total profile flux to range [180, 320] so mean image brightness does not trivially separate morphological classes.
+- Sklearn fallback downsampling: Downsampled 48x48 images to 24x24 via 2x2 average pooling for MLPClassifier fallback feature efficiency.
+- Occlusion map accumulation: Averaged overlapping patch importance values across pixels to produce smooth 48x48 spatial sensitivity heatmaps.
+- Main engine fuel burn calibration: Calibrated main engine fuel burn rate to 1/6.0 s^-1 (side 1/24.0 s^-1) so fuel_pct=40 acts as a realistic flight constraint that demonstrably lowers landing rate.
+- Ground touchdown engine cutoff: Deactivated thruster firing and applied ground friction damping once safe two-leg contact hold begins to prevent bouncing.
+- Vectorized candidate simulation: Evaluated batched ES candidate perturbations across parallel environments in VecLander via einsum for high-throughput CPU training.
+- UI dark styling palette: Standardized inline CSS dark space theme across IPython HTML cards and leaderboard using system sans-serif/monospace fonts and dark palette (#0b0f19 background, #111827 card, #1f2937 border, #38bdf8 cyan accent) with zero external fonts or CDN dependencies.
+- Standalone notebook fallback: Configured state loading and condition builders to generate deterministic default state upon launch, ensuring all act notebooks run standalone when prior acts are skipped.
+- Dynamic apply_to_state signature: Supported reversible argument ordering in apply_to_state to accept either (state, results) or (results, state) transparently across acts.
+- Windows junction virtualenv isolation: Employed NTFS directory junctions (cmd /c mklink /J) to link pre-installed dependencies into fresh virtualenvs without network downloads.
+- PyTorch conditional test guard: Added has_torch() helper to act3_galaxy and guarded PyTorch-specific assertions in test_act3 so tests cleanly verify the fallback MLPClassifier when torch extra is omitted.
+- Git ignore rule scoping: Scoped .gitignore exclusions to preserve essential workshop release assets (pre-trained checkpoint, visual artifacts, demo HTML) while ignoring disposable runtime states, logs, and artifacts/cache/.
+
