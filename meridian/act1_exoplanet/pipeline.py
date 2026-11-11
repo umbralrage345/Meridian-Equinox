@@ -17,7 +17,7 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import roc_auc_score
 
 from meridian.act1_exoplanet.generator import N_POINTS, TIME_GRID, make_star
-from meridian.config import is_fast
+from meridian.config import get_max_jobs, is_fast
 from meridian.coupling import (
     false_positive_target,
     gravity_from_depth,
@@ -154,16 +154,18 @@ def build_survey(team_id: str | int, fast: bool | None = None) -> Survey:
         try:
             with np.load(cache_path, allow_pickle=False) as data:
                 meta = json.loads(str(data["meta"]))
+                train_fluxes_arr = data["train_fluxes"]
+                candidate_fluxes_arr = data["candidate_fluxes"]
                 return Survey(
                     team_id=team_str,
                     is_fast=bool(meta["is_fast"]),
                     seed=int(meta["seed"]),
                     train_star_ids=meta["train_star_ids"],
-                    train_fluxes=[data["train_fluxes"][i] for i in range(len(data["train_fluxes"]))],
+                    train_fluxes=[train_fluxes_arr[i] for i in range(len(train_fluxes_arr))],
                     X_train=data["X_train"],
                     y_train=data["y_train"],
                     candidate_star_ids=meta["candidate_star_ids"],
-                    candidate_fluxes=[data["candidate_fluxes"][i] for i in range(len(data["candidate_fluxes"]))],
+                    candidate_fluxes=[candidate_fluxes_arr[i] for i in range(len(candidate_fluxes_arr))],
                     X_candidates=data["X_candidates"],
                     candidate_bls_info=meta["candidate_bls_info"],
                     _candidate_truth=meta["candidate_truth"],
@@ -205,7 +207,7 @@ def build_survey(team_id: str | int, fast: bool | None = None) -> Survey:
         + [(eval_seeds[i], eval_planets[i], f"EVAL_{i:04d}") for i in range(n_eval)]
     )
 
-    results = Parallel(n_jobs=-1, batch_size=16)(
+    results = Parallel(n_jobs=min(2, get_max_jobs()), batch_size=16, prefer="threads")(
         delayed(_process_star_worker)(s, hp, sid) for s, hp, sid in all_tasks
     )
 
@@ -366,7 +368,7 @@ def train(survey: Survey, **knobs: Any) -> ExoplanetModel:
         n_estimators=valid_knobs["n_estimators"],
         max_depth=valid_knobs["max_depth"],
         random_state=survey.seed,
-        n_jobs=-1,
+        n_jobs=get_max_jobs(),
     )
     clf.fit(X_tr, survey.y_train)
 

@@ -50,9 +50,17 @@ def false_positive_target() -> dict[str, Any]:
     }
 
 
-def act2_resources(missed: int, false_alarms: int) -> dict[str, float]:
+def act2_resources(
+    missed: int,
+    false_alarms: int = 0,
+    alarm_coverage: float | None = None,
+) -> dict[str, float]:
     """Calculate updated probe resource levels following telemetry anomaly detection."""
-    fuel = _clip_float(100.0 - 7.0 * missed - 0.5 * false_alarms, 40.0, 100.0)
+    if alarm_coverage is not None:
+        loss = 7.0 * missed + 20.0 * float(alarm_coverage)
+    else:
+        loss = 7.0 * missed + 0.5 * float(false_alarms)
+    fuel = _clip_float(100.0 - loss, 40.0, 100.0)
     noise = min(0.5, 0.08 * missed)
     hull = _clip_float(100.0 - 10.0 * missed, 20.0, 100.0)
     return {

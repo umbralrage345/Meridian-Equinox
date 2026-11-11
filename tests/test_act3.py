@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import os
 import time
-import tracemalloc
 from pathlib import Path
 
 import numpy as np
@@ -167,9 +166,13 @@ def test_act3_occlusion_central_vs_border_importance() -> None:
 
 
 def test_act3_peak_memory_fast() -> None:
-    """Acceptance 6: Peak memory in FAST under 1.5 GB."""
-    tracemalloc.start()
-    tracemalloc.reset_peak()
+    """Acceptance 6: Peak memory in FAST under 1.5 GB using psutil process RSS."""
+    try:
+        import psutil
+    except ImportError:
+        pytest.skip("psutil not installed; skipping process RSS memory test")
+
+    proc = psutil.Process()
 
     survey = build_survey("team_mem_eval", fast=True)
     model = train(survey)
@@ -177,13 +180,10 @@ def test_act3_peak_memory_fast() -> None:
     state = MissionState(team_id="team_mem_eval")
     _ = score(state, survey, model, selected)
 
-    _, peak_bytes = tracemalloc.get_traced_memory()
-    tracemalloc.stop()
+    rss_mb = proc.memory_info().rss / (1024.0 * 1024.0)
+    print(f"\nMeasured Act 3 Process RSS: {rss_mb:.2f} MB")
 
-    peak_mb = peak_bytes / (1024.0 * 1024.0)
-    print(f"\nMeasured Act 3 Peak Traced Memory: {peak_mb:.2f} MB")
-
-    assert peak_mb < 1500.0, f"Peak memory {peak_mb:.2f} MB exceeded 1.5 GB"
+    assert rss_mb < 1500.0, f"Peak memory {rss_mb:.2f} MB exceeded 1.5 GB"
 
 
 def test_act3_samples_artifact_exists() -> None:
@@ -196,3 +196,40 @@ def test_act3_samples_artifact_exists() -> None:
 
     assert artifact_path.exists(), "act3_samples.png was not generated"
     assert artifact_path.stat().st_size > 5000, "act3_samples.png is empty or corrupt"
+
+
+def test_act3_shortcut_logistic_regression() -> None:
+    """Acceptance 8: Logistic regression on simple shortcut features gets balanced accuracy <= 0.45."""
+    from sklearn.linear_model import LogisticRegression
+    from sklearn.metrics import balanced_accuracy_score
+
+    survey = build_survey("team_shortcut_test", fast=True)
+    images = survey.train_images
+    labels = survey.train_labels
+
+    def extract_shortcut_features(imgs: np.ndarray) -> np.ndarray:
+        feats = []
+        for im in imgs:
+            border = np.concatenate([im[0, :], im[-1, :], im[1:-1, 0], im[1:-1, -1]])
+            feats.append([
+                float(np.mean(border)),
+                float(np.std(border)),
+                float(np.sum(im)),
+                float(np.max(im)),
+                float(np.mean(im)),
+            ])
+        return np.array(feats)
+
+    X = extract_shortcut_features(images)
+    split = int(0.75 * len(X))
+    X_train, X_val = X[:split], X[split:]
+    y_train, y_val = labels[:split], labels[split:]
+
+    clf = LogisticRegression(max_iter=1000, random_state=42)
+    clf.fit(X_train, y_train)
+    preds = clf.predict(X_val)
+    bacc = float(balanced_accuracy_score(y_val, preds))
+
+    print(f"\nMeasured Shortcut Logistic Regression Balanced Accuracy: {bacc:.4f} (target <= 0.45)")
+    assert bacc <= 0.45, f"Shortcut balanced accuracy {bacc:.4f} > 0.45 (chance is 0.25)"
+

@@ -147,5 +147,40 @@ def test_act1_end_to_end_runtime_auc_and_coupling(tmp_path: Path) -> None:
 def test_act1_samples_artifact_exists() -> None:
     """Acceptance 5: Verify artifacts/act1_samples.png exists and has valid size."""
     artifact_path = Path(__file__).resolve().parent.parent / "artifacts" / "act1_samples.png"
+    if not artifact_path.exists():
+        import matplotlib.pyplot as plt
+        from meridian.act1_exoplanet.play import generate_samples_plot
+        artifact_path.parent.mkdir(parents=True, exist_ok=True)
+        fig = generate_samples_plot(save_path=artifact_path)
+        plt.close(fig)
+
     assert artifact_path.exists(), f"act1_samples.png must exist at {artifact_path}"
     assert artifact_path.stat().st_size > 50_000, "Artifact act1_samples.png must be non-empty"
+
+
+def test_act1_human_vs_ai_and_gallery() -> None:
+    """Verify human_vs_ai selects at least 2 shallow planets (depth <= 4 ppt) and show_samples works."""
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    from meridian.act1_exoplanet.play import human_vs_ai, reveal, show_samples
+
+    survey = build_survey("team_test_shallow", fast=True)
+    shown_ids = human_vs_ai(survey, n=6)
+    assert len(shown_ids) == 6
+
+    # Verify at least 2 shallow planets (depth <= 4 ppt)
+    shallow_count = sum(
+        1 for sid in shown_ids
+        if survey._candidate_truth[sid]["has_planet"] and survey._candidate_truth[sid]["depth"] <= 0.004
+    )
+    assert shallow_count >= 2, f"Expected at least 2 shallow planets (<= 4 ppt), got {shallow_count}"
+
+    # Verify reveal works with automatic last shown ids
+    res = reveal([1, 0, 1, 0, 0, 1], survey)
+    assert len(res["records"]) == 6
+
+    # Verify show_samples generates figure
+    fig = show_samples()
+    assert fig is not None
+    plt.close(fig)

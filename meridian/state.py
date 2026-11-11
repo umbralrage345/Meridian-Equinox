@@ -62,6 +62,7 @@ class Act2State(_Subscriptable):
     missed: int = 0
     false_alarms: int = 0
     mean_delay: float = 0.0
+    alarm_coverage: float = 0.0
 
 
 @dataclass

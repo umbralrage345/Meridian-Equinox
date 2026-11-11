@@ -109,18 +109,22 @@ def test_make_notebooks_and_your_turn_cells(tmp_path: Path):
         # Cell 1: setup
         c1 = nb.cells[1].source
         assert "REPO_URL" in c1
-        assert "# !pip install" in c1
+        assert "MERIDIAN_FAST" in c1
+        assert "import meridian" in c1
 
         # Cell 2: TEAM_ID and state
         c2 = nb.cells[2].source
         assert "TEAM_ID" in c2
         assert "load_state" in c2
 
-        # Exactly 1 YOUR TURN cell containing only knobs dict
+        # YOUR TURN cell checks: Acts 1-4 keep exactly 1 YOUR TURN cell with knobs dict; 00 and 05 have none
         yt_cells = [c for c in nb.cells if c.cell_type == "code" and "YOUR TURN" in c.source]
-        assert len(yt_cells) == 1, f"Expected 1 YOUR TURN cell in {p.name}, found {len(yt_cells)}"
-        yt_source = yt_cells[0].source
-        assert "knobs = {" in yt_source
+        if p.name in ["00_start.ipynb", "05_finale.ipynb"]:
+            assert len(yt_cells) == 0, f"Expected 0 YOUR TURN cells in {p.name}, found {len(yt_cells)}"
+        else:
+            assert len(yt_cells) == 1, f"Expected 1 YOUR TURN cell in {p.name}, found {len(yt_cells)}"
+            yt_source = yt_cells[0].source
+            assert "knobs = {" in yt_source
 
         # Markdown sentence count <= 4
         for idx, c in enumerate(nb.cells):

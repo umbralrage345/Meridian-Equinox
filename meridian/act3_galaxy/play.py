@@ -174,15 +174,44 @@ def human_vs_ai(survey: GalaxySurvey, n: int = 6) -> dict[str, Any]:
     plt.tight_layout()
     plt.show()
 
-    def reveal(guesses: list[int]) -> dict[str, Any]:
+    def _reveal_fn(guesses: list[int | None] | np.ndarray) -> dict[str, Any]:
         """Check participant guesses against true galaxy labels."""
-        guesses_arr = np.array(guesses[:n])
-        correct = (guesses_arr == truths[: len(guesses_arr)]).sum()
-        acc = float(correct / len(guesses_arr)) if len(guesses_arr) > 0 else 0.0
-        print(f"Human Classification Result: {correct}/{len(guesses_arr)} correct ({acc:.1%})")
-        for i, (g, t) in enumerate(zip(guesses_arr, truths[: len(guesses_arr)])):
-            status = "CORRECT" if g == t else "MISSED"
-            print(f"Image #{i+1}: Guess={CLASSES[g]}, True={CLASSES[t]} [{status}]")
-        return {"accuracy": acc, "correct": int(correct), "total": len(guesses_arr)}
+        guesses_list = list(guesses[:n]) if hasattr(guesses, "__iter__") else [guesses]
+        attempted = 0
+        correct = 0
+        records = []
+        for i, (g, t) in enumerate(zip(guesses_list, truths[:len(guesses_list)])):
+            if g is not None:
+                attempted += 1
+                g_int = int(g)
+                is_corr = (g_int == int(t))
+                if is_corr:
+                    correct += 1
+                status = "CORRECT" if is_corr else "MISSED"
+                g_name = CLASSES[g_int] if 0 <= g_int < len(CLASSES) else str(g_int)
+                print(f"Image #{i+1}: Guess={g_name:<10} | True={CLASSES[int(t)]:<10} [{status}]")
+                records.append({"image": i + 1, "guess": g_name, "true": CLASSES[int(t)], "status": status})
+            else:
+                print(f"Image #{i+1}: Guess=SKIP       | True={CLASSES[int(t)]:<10} [SKIPPED]")
+                records.append({"image": i + 1, "guess": "SKIP", "true": CLASSES[int(t)], "status": "SKIPPED"})
 
-    return {"figure": fig, "indices": indices, "reveal": reveal}
+        acc = float(correct / attempted) if attempted > 0 else 0.0
+        print("-" * 55)
+        if attempted > 0:
+            print(f"Human Classification Result: {correct}/{attempted} correct ({acc:.1%}) [Attempted {attempted}/{len(guesses_list)}]")
+        else:
+            print(f"Human Classification Result: SKIPPED (0/{len(guesses_list)} attempted).")
+            print(">> Instruction: Edit guesses = [0, 1, 2, 3] (0:Elliptical, 1:Spiral, 2:Edge-on, 3:Merger) to test yourself!")
+        return {"accuracy": acc, "correct": int(correct), "total": len(guesses_list), "attempted": attempted, "records": records}
+
+    return {"figure": fig, "indices": indices, "truths": truths, "reveal": _reveal_fn}
+
+
+def reveal(
+    guesses: list[int | None] | np.ndarray,
+    challenge: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Top-level helper to evaluate human guesses from galaxy challenge."""
+    if challenge is None or "reveal" not in challenge:
+        raise ValueError("Must provide challenge dict returned by human_vs_ai(survey).")
+    return challenge["reveal"](guesses)

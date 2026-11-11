@@ -27,6 +27,7 @@ from meridian.act3_galaxy.play import (
     human_vs_ai,
     occlusion_map,
     plot_confusion,
+    reveal,
     show_downlink,
     show_samples,
 )
@@ -48,6 +49,7 @@ __all__ = [
     "make_galaxy",
     "occlusion_map",
     "plot_confusion",
+    "reveal",
     "score",
     "select_downlink",
     "show_downlink",

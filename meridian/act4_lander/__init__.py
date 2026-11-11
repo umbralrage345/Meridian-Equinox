@@ -11,10 +11,11 @@ from meridian.act4_lander.train import (
     apply_to_state,
 )
 from meridian.act4_lander.play import (
-    record_episode,
-    plot_learning_curve,
-    stress_test,
     human_vs_ai,
+    plot_learning_curve,
+    record_episode,
+    reveal,
+    stress_test,
 )
 
 __all__ = [
@@ -31,4 +32,5 @@ __all__ = [
     "plot_learning_curve",
     "stress_test",
     "human_vs_ai",
+    "reveal",
 ]

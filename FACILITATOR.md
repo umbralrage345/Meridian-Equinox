@@ -68,11 +68,11 @@ A concise operational guide for running the 2-hour Project Meridian simulation w
   $env:MERIDIAN_FAST="1"    # Windows PowerShell
   export MERIDIAN_FAST=1   # macOS / Linux
   ```
-  Or add `%env MERIDIAN_FAST=1` at the top of the notebook. This reduces dataset sizes and iterations, dropping compute time under 4 minutes total.
+  Or add `%env MERIDIAN_FAST=1` at the top of the notebook. This reduces dataset sizes and training epochs, dropping total mission compute time across all acts to ~2.2 minutes (measured 132.8 seconds on a 2-CPU restricted machine).
 
 ### 4. PyTorch Missing or Incompatible Architecture
 - **Problem**: Student does not have PyTorch or encounters CUDA driver version conflicts.
-- **Fix**: PyTorch is strictly optional. Act 3 includes an automatic fallback to a CPU-optimized scikit-learn MLP classifier that runs identically and matches all baseline score thresholds. No action is required.
+- **Fix**: PyTorch is strictly optional. Act 3 includes an automatic fallback to a CPU-optimized scikit-learn MLP classifier on 24x24 downsampled pixels if PyTorch is not installed. Both backends pass baseline workshop thresholds, though scores and downlink rankings differ due to their distinct architectures (measured test accuracy: ~88.8% for PyTorch TinyCNN vs ~95–100% for scikit-learn MLPClassifier). No student action is required.
 
 ### 5. Lost or Corrupted State File
 - **Problem**: Student accidentally deletes `mission_state_<team_id>.json` before Act 4 descent.

@@ -7,7 +7,7 @@ name = "meridian"
 version = "0.1.0"
 description = "Simulation package for the Meridian fictional space probe workshop"
 readme = "README.md"
-requires-python = ">=3.10,<3.13"
+requires-python = ">=3.10"
 dependencies = [
     "numpy",
     "scipy",
@@ -22,6 +22,15 @@ dependencies = [
 [project.optional-dependencies]
 torch = [
     "torch",
+]
+dev = [
+    "pytest",
+    "nbconvert",
+    "ipykernel",
+    "psutil",
+]
+notebook = [
+    "jupyterlab",
 ]
 
 [tool.setuptools.packages.find]

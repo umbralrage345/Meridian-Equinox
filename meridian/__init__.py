@@ -2,7 +2,7 @@
 
 __version__ = "0.1.0"
 
-from meridian.config import FAST_BUDGETS, MAX_SCORES, SECRET, is_fast
+from meridian.config import FAST_BUDGETS, MAX_SCORES, SECRET, get_max_jobs, is_fast
 from meridian.coupling import (
     act2_resources,
     false_positive_target,
@@ -12,6 +12,10 @@ from meridian.coupling import (
     trip_days_from_period,
     wind_from_period,
 )
+try:
+    from meridian.act3_galaxy.models import HAS_TORCH
+except ImportError:
+    HAS_TORCH = False
 from meridian.scoring import export_code, verify_code
 from meridian.seeding import seed_for
 from meridian.state import (
@@ -30,6 +34,8 @@ __all__ = [
     "FAST_BUDGETS",
     "MAX_SCORES",
     "SECRET",
+    "HAS_TORCH",
+    "get_max_jobs",
     "is_fast",
     "seed_for",
     "MissionState",

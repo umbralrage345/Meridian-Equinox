@@ -20,7 +20,7 @@ from meridian.act2_telemetry.generator import (
     TelemetryStream,
     make_stream,
 )
-from meridian.act2_telemetry.play import animate_stream, human_vs_ai, plot_result
+from meridian.act2_telemetry.play import animate_stream, human_vs_ai, plot_result, reveal
 
 __all__ = [
     "CHANNELS",
@@ -42,4 +42,5 @@ __all__ = [
     "animate_stream",
     "plot_result",
     "human_vs_ai",
+    "reveal",
 ]

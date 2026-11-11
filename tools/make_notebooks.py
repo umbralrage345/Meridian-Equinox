@@ -9,19 +9,32 @@ import nbformat as nbf
 
 SETUP_CODE = """# Setup and package installation
 REPO_URL = "https://github.com/placeholder/meridian"
-# Option 1: Install from GitHub in Google Colab
-# !pip install -q git+$REPO_URL
 
-# Option 2: Install from local editable package
-# !pip install -e /path/to/meridian-workshop
-
+import os
+import subprocess
 import sys
 from pathlib import Path
-repo_dir = Path.cwd()
-while repo_dir.parent != repo_dir and not (repo_dir / "meridian").exists():
-    repo_dir = repo_dir.parent
-if (repo_dir / "meridian").exists() and str(repo_dir) not in sys.path:
-    sys.path.insert(0, str(repo_dir))
+
+# Enable FAST mode by default to respect compute budgets (set to "0" to disable)
+os.environ.setdefault("MERIDIAN_FAST", "1")
+
+try:
+    import meridian
+except ImportError:
+    if "google.colab" in sys.modules:
+        subprocess.run([sys.executable, "-m", "pip", "install", "-q", f"git+{REPO_URL}"], check=True)
+        import meridian
+    else:
+        repo_dir = Path.cwd()
+        while repo_dir.parent != repo_dir and not (repo_dir / "meridian").exists():
+            repo_dir = repo_dir.parent
+        if (repo_dir / "meridian").exists() and str(repo_dir) not in sys.path:
+            sys.path.insert(0, str(repo_dir))
+        import meridian
+
+fast_str = "ON" if os.environ.get("MERIDIAN_FAST") == "1" else "OFF"
+backend_str = "torch" if getattr(meridian, "HAS_TORCH", False) else "sklearn"
+print(f"Meridian v{meridian.__version__} | FAST mode: {fast_str} | Act 3 backend: {backend_str}")
 """
 
 STATE_LOAD_CODE = """import os
@@ -52,7 +65,13 @@ def create_00_start() -> nbf.NotebookNode:
             "Decisions made in early acts carry physical consequences into subsequent flight envelopes."
         ),
         nbf.v4.new_code_cell(SETUP_CODE),
-        nbf.v4.new_code_cell(STATE_LOAD_CODE),
+        nbf.v4.new_code_cell(
+            "# Set your team identifier here\n"
+            "TEAM_ID = \"team-alpha\"\n\n"
+            "from meridian.state import load_state\n"
+            "from meridian.ui import briefing, dashboard, debrief\n"
+            "state = load_state(TEAM_ID)"
+        ),
         nbf.v4.new_code_cell("briefing(0)"),
         nbf.v4.new_markdown_cell(
             "### Pre-Flight Telemetry Check\n\n"
@@ -68,23 +87,6 @@ def create_00_start() -> nbf.NotebookNode:
             "print(f'Hull Integrity    : {state.resources.hull_health:.1f}%')\n"
             "print(f'Sensor Noise Floor: σ = {state.resources.sensor_noise:.3f}')\n"
             "print('Status: All telemetry transceivers nominal.')"
-        ),
-        nbf.v4.new_markdown_cell(
-            "### Probe Calibration Knobs\n\n"
-            "Throughout each mission act, you will encounter exactly one tuning cell marked 'YOUR TURN'. "
-            "In this cell, you adjust hyperparameters to steer machine learning models and probe algorithms. "
-            "Keep the dictionary format intact as you test and optimize your approach."
-        ),
-        nbf.v4.new_code_cell(
-            "# YOUR TURN: Configure probe initialization telemetry\n"
-            "knobs = {\n"
-            "    \"telemetry_rate_hz\": 50,\n"
-            "    \"logging_level\": \"verbose\",\n"
-            "}"
-        ),
-        nbf.v4.new_code_cell(
-            "# Verify mission initialization\n"
-            "print(f'Mission systems calibrated with parameters: {knobs}')"
         ),
         nbf.v4.new_code_cell(
             "# Initial mission dashboard\n"
@@ -132,9 +134,14 @@ def create_01_destination() -> nbf.NotebookNode:
             "Notice how stellar noise and flares obscure true planetary signals."
         ),
         nbf.v4.new_code_cell(
-            "# Inspect 4 candidate light curves and benchmark against AI\n"
-            "sample_ids = human_vs_ai(survey, n=4)\n"
-            "reveal(guesses=[1, 0, 1, 0], survey=survey, star_ids=sample_ids)"
+            "# Inspect 4 candidate light curves\n"
+            "sample_ids = human_vs_ai(survey, n=4)"
+        ),
+        nbf.v4.new_code_cell(
+            "# YOUR GUESSES: Replace None with 1 (planet transit) or 0 (stellar variability/noise)\n"
+            "# e.g. guesses = [1, 0, 1, 0]. Unedited run will treat None as skipped.\n"
+            "guesses = [None, None, None, None]\n"
+            "reveal(guesses=guesses, survey=survey, star_ids=sample_ids)"
         ),
         nbf.v4.new_markdown_cell(
             "### Inspecting Feature Extraction\n\n"
@@ -204,7 +211,7 @@ def create_02_cruise_watch() -> nbf.NotebookNode:
             "We simulate unexpected hardware faults injected at unknown intervals along the flight path."
         ),
         nbf.v4.new_code_cell(
-            "from meridian.act2_telemetry import make_stream, train, run, apply_to_state, plot_result, human_vs_ai\n"
+            "from meridian.act2_telemetry import make_stream, train, run, apply_to_state, plot_result, human_vs_ai, reveal\n"
             "trip_days = state.act1.target.trip_days if state.act1.done else 100\n"
             "stream = make_stream(TEAM_ID, trip_days=trip_days)\n"
             "print(f'Cruise telemetry stream generated: {len(stream.mission_data[\"bus_voltage\"])} steps, {len(stream.faults)} injected faults.')"
@@ -217,7 +224,13 @@ def create_02_cruise_watch() -> nbf.NotebookNode:
         ),
         nbf.v4.new_code_cell(
             "# Spot the faulty sensor stream segment\n"
-            "h_res = human_vs_ai(stream)"
+            "challenge = human_vs_ai(stream)"
+        ),
+        nbf.v4.new_code_cell(
+            "# YOUR GUESS: Choose 'A', 'B', or 'C' (e.g. guesses = ['A']).\n"
+            "# Unedited run with None will be treated as skipped.\n"
+            "guesses = [None]\n"
+            "reveal(guesses=guesses, challenge=challenge)"
         ),
         nbf.v4.new_markdown_cell(
             "### YOUR TURN: Configure Anomaly Detection\n\n"
@@ -277,7 +290,7 @@ def create_03_deep_field() -> nbf.NotebookNode:
         nbf.v4.new_code_cell(
             "from meridian.act3_galaxy import (\n"
             "    build_survey, train, select_downlink, score,\n"
-            "    show_samples, plot_confusion, show_downlink, human_vs_ai\n"
+            "    show_samples, plot_confusion, show_downlink, human_vs_ai, reveal\n"
             ")\n"
             "survey = build_survey(TEAM_ID)\n"
             "print(f'Galaxy survey loaded: {len(survey.train_images)} training images, {len(survey.stream_images)} sky stream images.')"
@@ -289,9 +302,14 @@ def create_03_deep_field() -> nbf.NotebookNode:
             "Automated classifiers evaluate subtle pixel gradients and asymmetry metrics."
         ),
         nbf.v4.new_code_cell(
-            "# Classify 4 galaxy morphology samples\n"
-            "h_chal = human_vs_ai(survey, n=4)\n"
-            "h_chal['reveal']([0, 1, 2, 3])"
+            "# Challenge: Classify 4 galaxy morphology samples\n"
+            "challenge = human_vs_ai(survey, n=4)"
+        ),
+        nbf.v4.new_code_cell(
+            "# YOUR GUESSES: Replace None with class indices (0: Elliptical, 1: Spiral, 2: Edge-on, 3: Merger).\n"
+            "# e.g. guesses = [0, 1, 2, 3]. Unedited run will treat None as skipped.\n"
+            "guesses = [None, None, None, None]\n"
+            "reveal(guesses=guesses, challenge=challenge)"
         ),
         nbf.v4.new_markdown_cell(
             "### Inspecting Morphological Classes\n\n"
@@ -362,7 +380,10 @@ def create_04_descent() -> nbf.NotebookNode:
             "Available thruster fuel and sensor noise reflect your anomaly handling during the Act 2 cruise."
         ),
         nbf.v4.new_code_cell(
-            "from meridian.act4_lander import build_conditions, train, evaluate, apply_to_state, plot_learning_curve, human_vs_ai\n"
+            "from meridian.act4_lander import (\n"
+            "    build_conditions, train, evaluate, apply_to_state,\n"
+            "    plot_learning_curve, human_vs_ai, reveal, record_episode\n"
+            ")\n"
             "from meridian import seeding\n"
             "conditions = build_conditions(state)\n"
             "print(f'Descent Conditions: Gravity={conditions[\"gravity\"]:.2f} m/s², Wind={conditions[\"wind\"]:.2f} m/s², Fuel={conditions[\"fuel_pct\"]:.1f}%, Noise=σ {conditions[\"sensor_noise\"]:.3f}')"
@@ -374,8 +395,14 @@ def create_04_descent() -> nbf.NotebookNode:
             "Notice how active feedback regulation stabilizes attitude and slows vertical touchdown velocity."
         ),
         nbf.v4.new_code_cell(
-            "# Compare heuristic PD controller against unguided free-fall\n"
-            "human_vs_ai(conditions)"
+            "# Benchmark PD controller and free-fall across sample winds\n"
+            "challenge = human_vs_ai(conditions)"
+        ),
+        nbf.v4.new_code_cell(
+            "# YOUR GUESSES: Predict success (1) or crash (0) for the 3 test flight gusts.\n"
+            "# e.g. guesses = [1, 0, 1]. Unedited run will treat None as skipped.\n"
+            "guesses = [None, None, None]\n"
+            "reveal(guesses=guesses, challenge=challenge)"
         ),
         nbf.v4.new_markdown_cell(
             "### YOUR TURN: Train Neural Flight Policy with Evolution Strategies\n\n"
@@ -407,6 +434,23 @@ def create_04_descent() -> nbf.NotebookNode:
             "plot_learning_curve(history)\n"
             "plt.show()"
         ),
+        nbf.v4.new_markdown_cell(
+            "### Descent Flight Animations\n\n"
+            "Inspect your autonomous lander's flight trajectory under nominal and stress-tested Martian conditions. "
+            "The lander pulses its main engine and side thrusters to arrest descent and touch down on the pad. "
+            "Pass `compare_with_random=True` to render a side-by-side comparison against unguided descent."
+        ),
+        nbf.v4.new_code_cell(
+            "# Display descent animations: (1) Nominal episode, (2) Martian high-wind stress test\n"
+            "from IPython.display import HTML\n\n"
+            "# 1. Best nominal flight episode\n"
+            "html_best = record_episode(policy, conditions, seed=eval_seed)\n"
+            "display(HTML(html_best))\n\n"
+            "# 2. Mars high-wind stress test (low gravity, turbulent crosswind)\n"
+            "mars_cond = {\"gravity\": 3.7, \"wind\": 5.0, \"fuel_pct\": conditions.get(\"fuel_pct\", 100.0), \"sensor_noise\": conditions.get(\"sensor_noise\", 0.0)}\n"
+            "html_mars = record_episode(policy, mars_cond, seed=eval_seed + 1)\n"
+            "display(HTML(html_mars))"
+        ),
         nbf.v4.new_code_cell("debrief(state, 4)"),
         nbf.v4.new_code_cell(
             "state.save()\n"
@@ -436,19 +480,6 @@ def create_05_finale() -> nbf.NotebookNode:
         nbf.v4.new_code_cell(
             "# Final mission dashboard\n"
             "dashboard(state)"
-        ),
-        nbf.v4.new_markdown_cell(
-            "### YOUR TURN: Verify Mission Submission Options\n\n"
-            "Confirm that you are ready to generate your official cryptographic flight certificate. "
-            "Once exported, the signature verifies that all state variables, scores, and resource levels were achieved legally. "
-            "Review your parameters below before generating the final report."
-        ),
-        nbf.v4.new_code_cell(
-            "# YOUR TURN: Set final mission submission verification options\n"
-            "knobs = {\n"
-            "    \"confirm_submission\": True,\n"
-            "    \"export_telemetry\": True,\n"
-            "}"
         ),
         nbf.v4.new_code_cell(
             "# Auto Mission Report: 4-act timeline, scores, and coupling analysis\n"

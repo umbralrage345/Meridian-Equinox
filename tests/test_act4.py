@@ -279,16 +279,42 @@ def test_acceptance_7_animation_renders():
     ckpt_path = Path(__file__).resolve().parent.parent / "checkpoints" / "act4_default.npz"
     policy = MLPPolicy.load(ckpt_path)
 
-    html = record_episode(policy, seed=42)
+    # 1. Single flight GIF render
+    t0 = time.time()
+    html = record_episode(policy, seed=42, compare_with_random=False)
+    t_single = time.time() - t0
     assert isinstance(html, str)
-    assert len(html) > 1000
+    assert "data:image/gif;base64," in html
+    assert t_single <= 20.0, f"Single render took {t_single:.2f}s > 20s"
 
+    # Extract base64 payload and verify size <= 600 KB
+    import base64
+    b64_part = html.split("data:image/gif;base64,")[1].split('"')[0]
+    raw_gif = base64.b64decode(b64_part)
+    gif_size_kb = len(raw_gif) / 1024.0
+    print(f"\nSingle GIF render: {gif_size_kb:.1f} KB in {t_single:.2f}s")
+    assert gif_size_kb <= 600.0, f"Single GIF {gif_size_kb:.1f} KB > 600 KB"
+
+    # Save artifact demo
     out_path = Path(__file__).resolve().parent.parent / "artifacts" / "act4_demo.html"
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(html, encoding="utf-8")
     assert out_path.exists()
     assert out_path.stat().st_size > 1000
-    print(f"\nArtifact saved: {out_path} ({out_path.stat().st_size} bytes)")
+
+    # 2. Comparison flight GIF render (Random vs Trained)
+    t1 = time.time()
+    html_comp = record_episode(policy, seed=42, compare_with_random=True)
+    t_comp = time.time() - t1
+    assert isinstance(html_comp, str)
+    assert "data:image/gif;base64," in html_comp
+    assert t_comp <= 20.0, f"Comparison render took {t_comp:.2f}s > 20s"
+
+    b64_comp_part = html_comp.split("data:image/gif;base64,")[1].split('"')[0]
+    raw_comp_gif = base64.b64decode(b64_comp_part)
+    comp_size_kb = len(raw_comp_gif) / 1024.0
+    print(f"Comparison GIF render: {comp_size_kb:.1f} KB in {t_comp:.2f}s")
+    assert comp_size_kb <= 700.0, f"Comparison GIF {comp_size_kb:.1f} KB > 700 KB"
 
 
 def test_state_integration_and_knobs():

@@ -12,7 +12,7 @@ from sklearn.neural_network import MLPRegressor
 from sklearn.preprocessing import StandardScaler
 
 from meridian.act2_telemetry.generator import CHANNELS, TelemetryStream, make_stream
-from meridian.config import is_fast
+from meridian.config import get_max_jobs, is_fast
 from meridian.coupling import act2_resources
 from meridian.seeding import seed_for
 
@@ -148,6 +148,38 @@ class TelemetryResult:
     fault_details: list[dict[str, Any]]
     window_starts: np.ndarray
     channel_scores: dict[str, dict[str, np.ndarray]]
+    alarm_coverage: float = 0.0
+    channel_alarm_runs: dict[str, list[tuple[int, int]]] = field(default_factory=dict)
+
+
+def merge_windows(
+    indices: np.ndarray,
+    window_size: int,
+    stride_size: int = STRIDE,
+    max_span: int = 300,
+) -> list[tuple[int, int]]:
+    """Merge alarm windows: merge gaps <= stride_size and do not merge across > max_span steps."""
+    runs: list[tuple[int, int]] = []
+    if len(indices) == 0:
+        return runs
+
+    cur_start = int(indices[0] * stride_size)
+    cur_end = cur_start + window_size
+
+    for w in indices[1:]:
+        w_start = int(w * stride_size)
+        w_end = w_start + window_size
+        gap = w_start - cur_end
+        new_span = max(cur_end, w_end) - cur_start
+        if gap <= stride_size and new_span <= max_span:
+            cur_end = max(cur_end, w_end)
+        else:
+            runs.append((cur_start, cur_end))
+            cur_start = w_start
+            cur_end = w_end
+
+    runs.append((cur_start, cur_end))
+    return runs
 
 
 def build_stream(state: MissionState, fast: bool | None = None) -> TelemetryStream:
@@ -170,43 +202,67 @@ def train(stream: TelemetryStream, **knobs: Any) -> TelemetryDetector:
     channel_models: dict[str, ChannelModels] = {}
     train_scores: dict[str, dict[str, np.ndarray]] = {}
 
+    # Calibrate false-alarm budget so default percentile does not compound across tests
+    n_det = 2 if det_mode == "both" else 1
+    n_tests = n_det * len(CHANNELS)
+    alpha_target = max(1e-5, 1.0 - (percentile / 100.0))
+    alpha_per_test = alpha_target / float(n_tests)
+    cal_percentile = float(np.clip(100.0 * (1.0 - alpha_per_test), 50.0, 99.99))
+
     for ch_idx, ch in enumerate(CHANNELS):
         ch_seed = seed + ch_idx * 17
         data = stream.train_data[ch]
         c_mod = ChannelModels(channel=ch)
         train_scores[ch] = {}
 
+        # 70/30 split: fit on first 70%, calibrate threshold on held-out 30%
+        n_total = len(data)
+        split_idx = int(0.70 * n_total)
+        data_fit = data[:split_idx]
+        data_cal = data[split_idx:]
+
+        cal_stride = max(1, STRIDE // 4)
         if det_mode in ("iforest", "both"):
-            X_tr, _ = extract_iforest_features(data, window)
+            X_fit, _ = extract_iforest_features(data_fit, window)
             s_if = StandardScaler()
-            X_tr_s = s_if.fit_transform(X_tr)
-            clf_if = IsolationForest(n_estimators=300, random_state=ch_seed, n_jobs=-1)
-            clf_if.fit(X_tr_s)
-            tr_sc_if = -clf_if.score_samples(X_tr_s)
+            X_fit_s = s_if.fit_transform(X_fit)
+            clf_if = IsolationForest(n_estimators=300, random_state=ch_seed, n_jobs=get_max_jobs())
+            clf_if.fit(X_fit_s)
+
+            # Score on held-out 30% calibration set (sampled with fine stride for tail calibration)
+            X_cal, _ = extract_iforest_features(data_cal, window, stride=cal_stride)
+            X_cal_s = s_if.transform(X_cal)
+            cal_sc_if = -clf_if.score_samples(X_cal_s)
 
             c_mod.iforest_scaler = s_if
             c_mod.iforest_model = clf_if
-            c_mod.iforest_threshold = float(np.percentile(tr_sc_if, percentile))
-            train_scores[ch]["iforest"] = tr_sc_if
+            # Scale threshold by 1.15 to account for extreme value maximum across mission windows vs held-out 30% calibration set
+            c_mod.iforest_threshold = float(np.percentile(cal_sc_if, cal_percentile)) * 1.15
+            train_scores[ch]["iforest"] = cal_sc_if
 
         if det_mode in ("autoencoder", "both"):
-            X_tr, _ = extract_autoencoder_features(data, window)
+            X_fit, _ = extract_autoencoder_features(data_fit, window)
             s_ae = StandardScaler()
-            X_tr_s = s_ae.fit_transform(X_tr)
+            X_fit_s = s_ae.fit_transform(X_fit)
             mlp = MLPRegressor(
                 hidden_layer_sizes=(16, 6, 16),
                 activation="tanh",
                 max_iter=300,
                 random_state=ch_seed,
             )
-            mlp.fit(X_tr_s, X_tr_s)
-            recons_tr = mlp.predict(X_tr_s)
-            tr_sc_ae = np.mean((X_tr_s - recons_tr) ** 2, axis=1)
+            mlp.fit(X_fit_s, X_fit_s)
+
+            # Score on held-out 30% calibration set
+            X_cal, _ = extract_autoencoder_features(data_cal, window, stride=cal_stride)
+            X_cal_s = s_ae.transform(X_cal)
+            recons_cal = mlp.predict(X_cal_s)
+            cal_sc_ae = np.mean((X_cal_s - recons_cal) ** 2, axis=1)
 
             c_mod.ae_scaler = s_ae
             c_mod.ae_model = mlp
-            c_mod.ae_threshold = float(np.percentile(tr_sc_ae, percentile))
-            train_scores[ch]["autoencoder"] = tr_sc_ae
+            # Scale threshold by 2.5 for quadratic MSE residual tail calibration across mission windows
+            c_mod.ae_threshold = float(np.percentile(cal_sc_ae, cal_percentile)) * 2.5
+            train_scores[ch]["autoencoder"] = cal_sc_ae
 
         channel_models[ch] = c_mod
 
@@ -225,6 +281,7 @@ def run(detector: TelemetryDetector, stream: TelemetryStream) -> TelemetryResult
 
     channel_alarms: list[np.ndarray] = []
     channel_scores: dict[str, dict[str, np.ndarray]] = {}
+    channel_alarm_runs: dict[str, list[tuple[int, int]]] = {}
     window_starts = np.array([])
 
     for ch in CHANNELS:
@@ -260,21 +317,31 @@ def run(detector: TelemetryDetector, stream: TelemetryStream) -> TelemetryResult
             ch_over = pers_alarm
 
         channel_alarms.append(ch_over)
+        ch_indices = np.where(ch_over)[0]
+        channel_alarm_runs[ch] = merge_windows(ch_indices, window, STRIDE, max_span=300)
 
-    # An alarm fires when any channel's window score triggers
+    # Combined alarms: an alarm fires when any channel's window score triggers
     combined_alarms = np.any(channel_alarms, axis=0) if channel_alarms else np.zeros(len(window_starts), dtype=bool)
     alarm_indices = np.where(combined_alarms)[0]
 
-    # Merge overlapping/consecutive alarm windows into alarm runs (bridging gaps <= 2 * STRIDE)
-    merged_runs: list[tuple[int, int]] = []
-    for w in alarm_indices:
-        w_start = int(w * STRIDE)
-        w_end = int(w_start + window)
-        if not merged_runs or w_start > merged_runs[-1][1] + 2 * STRIDE:
-            merged_runs.append((w_start, w_end))
-        else:
-            prev_start, prev_end = merged_runs[-1]
-            merged_runs[-1] = (prev_start, max(prev_end, w_end))
+    # Merge overlapping/consecutive alarm windows into alarm runs (gaps <= STRIDE, max span 300)
+    merged_runs = merge_windows(alarm_indices, window, STRIDE, max_span=300)
+
+    # Track continuous alarm episodes (unbroken alarm runs) to attribute fault onsets
+    episodes: list[tuple[int, int]] = []
+    if len(alarm_indices) > 0:
+        ep_start = int(alarm_indices[0] * STRIDE)
+        ep_end = ep_start + window
+        for w in alarm_indices[1:]:
+            ws = int(w * STRIDE)
+            we = ws + window
+            if ws <= ep_end + STRIDE:
+                ep_end = max(ep_end, we)
+            else:
+                episodes.append((ep_start, ep_end))
+                ep_start = ws
+                ep_end = we
+        episodes.append((ep_start, ep_end))
 
     # Evaluate faults caught vs missed and delays
     n_faults_total = len(stream.faults)
@@ -286,14 +353,16 @@ def run(detector: TelemetryDetector, stream: TelemetryStream) -> TelemetryResult
         f_start = f["start"]
         f_end_extended = f["end"] + 100
 
-        # Fault is caught if an alarm run overlaps [start, end+100]
-        overlapping_runs = [
-            r for r in merged_runs if max(r[0], f_start) <= min(r[1], f_end_extended)
+        # An alarm episode catches a fault if its onset occurred in [start - window, end + 100]
+        # and it overlaps the fault window
+        catching_eps = [
+            ep for ep in episodes
+            if (f_start - window <= ep[0] <= f_end_extended) and (max(ep[0], f_start) <= min(ep[1], f_end_extended))
         ]
 
-        if overlapping_runs:
+        if catching_eps:
             caught_count += 1
-            first_alarm_step = min(r[0] for r in overlapping_runs)
+            first_alarm_step = min(ep[0] for ep in catching_eps)
             delay = float(max(0, first_alarm_step - f_start))
             delays.append(delay)
 
@@ -320,6 +389,19 @@ def run(detector: TelemetryDetector, stream: TelemetryStream) -> TelemetryResult
                 "first_alarm_step": None,
             })
 
+    # Normal steps and alarm coverage:
+    total_steps = len(stream.mission_data[CHANNELS[0]])
+    normal_mask = np.ones(total_steps, dtype=bool)
+    for f in stream.faults:
+        normal_mask[f["start"] : min(total_steps, f["end"] + 101)] = False
+    normal_steps = int(np.sum(normal_mask))
+
+    alarm_mask = np.zeros(total_steps, dtype=bool)
+    for rs, re in merged_runs:
+        alarm_mask[max(0, rs) : min(total_steps, re)] = True
+    alarmed_normal_steps = int(np.sum(normal_mask & alarm_mask))
+    alarm_coverage = float(alarmed_normal_steps / normal_steps) if normal_steps > 0 else 0.0
+
     # A false alarm is an alarm run overlapping no fault window
     false_alarm_count = 0
     for r in merged_runs:
@@ -329,13 +411,13 @@ def run(detector: TelemetryDetector, stream: TelemetryStream) -> TelemetryResult
         if not overlaps_any:
             false_alarm_count += 1
 
-    total_credits = sum(fd["credit"] for fd in fault_details)
-    raw_score = (
-        200.0 * (total_credits / n_faults_total) - min(60.0, 6.0 * false_alarm_count)
-        if n_faults_total > 0
-        else 0.0
-    )
-    score = float(np.clip(raw_score, 0.0, 200.0))
+    # Exact score formula:
+    # score = round(200 * (0.65*credit_mean + 0.35*(1 - min(1, alarm_coverage/0.30))))
+    credit_mean = float(np.mean([fd["credit"] for fd in fault_details])) if fault_details else 1.0
+    cov_penalty = min(1.0, alarm_coverage / 0.30)
+    score = float(round(200.0 * (0.65 * credit_mean + 0.35 * (1.0 - cov_penalty))))
+    score = float(np.clip(score, 0.0, 200.0))
+
     missed_count = n_faults_total - caught_count
     mean_delay = float(np.mean(delays)) if delays else 0.0
 
@@ -350,6 +432,8 @@ def run(detector: TelemetryDetector, stream: TelemetryStream) -> TelemetryResult
         fault_details=fault_details,
         window_starts=window_starts,
         channel_scores=channel_scores,
+        alarm_coverage=alarm_coverage,
+        channel_alarm_runs=channel_alarm_runs,
     )
 
 
@@ -363,7 +447,7 @@ def apply_to_state(state_or_result: Any, result_or_state: Any) -> MissionState:
         result = state_or_result
         state = result_or_state
 
-    res_update = act2_resources(result.missed, result.false_alarms)
+    res_update = act2_resources(result.missed, result.false_alarms, result.alarm_coverage)
 
     state.resources.fuel_pct = float(res_update["fuel_pct"])
     state.resources.sensor_noise = float(res_update["sensor_noise"])
@@ -376,6 +460,7 @@ def apply_to_state(state_or_result: Any, result_or_state: Any) -> MissionState:
     state.act2.missed = int(result.missed)
     state.act2.false_alarms = int(result.false_alarms)
     state.act2.mean_delay = float(result.mean_delay)
+    state.act2.alarm_coverage = float(result.alarm_coverage)
 
     state.save()
     return state

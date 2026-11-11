@@ -14,12 +14,14 @@ from meridian.act1_exoplanet.pipeline import (
     validate_knobs,
 )
 from meridian.act1_exoplanet.play import (
+    generate_samples_plot,
     human_vs_ai,
     plot_bls,
     plot_candidates,
     plot_fold,
     plot_lightcurve,
     reveal,
+    show_samples,
 )
 
 __all__ = [
@@ -39,6 +41,8 @@ __all__ = [
     "plot_bls",
     "plot_fold",
     "plot_candidates",
+    "generate_samples_plot",
+    "show_samples",
     "human_vs_ai",
     "reveal",
 ]

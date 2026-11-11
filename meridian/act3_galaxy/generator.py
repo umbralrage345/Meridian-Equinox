@@ -36,7 +36,7 @@ def make_galaxy(rng: np.random.Generator, cls: int) -> np.ndarray:
 
     Classes:
         0 - elliptical: Sersic-like profile exp(-2.2*(r/re)^0.5), ellipticity q~U(0.5,1), random rotation.
-        1 - spiral: bulge + exponential disk modulated by 2-3 logarithmic spiral arms, inclination q~U(0.55,0.95).
+        1 - spiral: bulge + exponential disk modulated by 2-3 logarithmic spiral arms, inclination q~U(0.75,1.0).
         2 - edge_on: very flattened disk (axis ratio 0.08-0.22) with a small bulge and dust lane.
         3 - merger: two overlapping blobs with random offset and brightness ratio + curved tidal tail.
     """
@@ -49,53 +49,56 @@ def make_galaxy(rng: np.random.Generator, cls: int) -> np.ndarray:
     # Rotated coordinates
     xr = cos_t * (x - cx) + sin_t * (y - cy)
     yr = -sin_t * (x - cx) + cos_t * (y - cy)
+    r_center = np.sqrt((x - cx)**2 + (y - cy)**2)
+    aperture = np.clip((20.0 - r_center) / 3.0, 0.0, 1.0)
 
     if cls == 0:
         # Elliptical: Sersic-like profile exp(-2.2*(r/re)^0.5), ellipticity q~U(0.5,1), random rotation
         q = float(rng.uniform(0.50, 0.95))
-        re = float(rng.uniform(5.0, 10.0))
+        re = float(rng.uniform(4.5, 7.5))
         r = np.sqrt(xr**2 + (yr / q)**2)
-        img = np.exp(-2.2 * (np.maximum(1e-4, r / re))**0.5)
+        img = np.exp(-2.2 * (np.maximum(0.1, r / re))**0.5)
 
     elif cls == 1:
-        # Spiral: bulge + exponential disk modulated by 2-3 logarithmic spiral arms, inclination q~U(0.55,0.95)
-        q = float(rng.uniform(0.55, 0.95))
+        # Spiral: bulge + exponential disk modulated by 2-3 logarithmic spiral arms, inclination q~U(0.80,1.0)
+        q = float(rng.uniform(0.80, 1.0))
         r = np.sqrt(xr**2 + (yr / q)**2)
         phi = np.arctan2(yr / q, xr)
 
-        rb = float(rng.uniform(2.0, 4.0))
-        bulge = float(rng.uniform(0.6, 1.2)) * np.exp(-2.0 * (np.maximum(1e-4, r / rb))**0.5)
+        rb = float(rng.uniform(0.7, 1.3))
+        bulge = float(rng.uniform(4.5, 6.5)) * np.exp(-2.2 * (np.maximum(0.04, r / rb))**0.5)
 
-        rd = float(rng.uniform(6.0, 11.0))
+        rd = float(rng.uniform(4.5, 6.5))
         disk = np.exp(-r / rd)
         n_arms = int(rng.choice([2, 3]))
         handedness = float(rng.choice([-1.0, 1.0]))
-        pitch = float(rng.uniform(2.0, 3.8))
-        arm_phase = n_arms * phi + handedness * pitch * np.log(np.maximum(1.0, r / 2.5))
-        arm_amp = float(rng.uniform(0.35, 0.75))
-        arm_mod = 1.0 + arm_amp * np.cos(arm_phase)
-        arm_env = np.clip((r - 2.0) / 4.0, 0.0, 1.0) * np.exp(-r / rd)
-        img = bulge + 0.8 * disk + 0.6 * arm_mod * arm_env
+        pitch = float(rng.uniform(2.2, 3.5))
+        arm_phase = n_arms * phi + handedness * pitch * np.log(np.maximum(1.0, r / 2.0))
+        arm_raw = (0.5 + 0.5 * np.cos(arm_phase)) ** 2.2
+        arm_pattern = 0.15 + 0.85 * arm_raw
+        arm_env = np.clip(r / 2.0, 0.0, 1.0) * np.exp(-r / rd)
+        img = bulge + 0.08 * disk + 1.5 * arm_pattern * arm_env
 
     elif cls == 2:
         # Edge-on: very flattened disk (axis ratio 0.08-0.22) with a small bulge
-        q = float(rng.uniform(0.08, 0.22))
+        q = float(rng.uniform(0.10, 0.22))
         r_maj = np.abs(xr)
         r_min = np.abs(yr)
-        rd = float(rng.uniform(7.0, 12.0))
-        z0 = float(rng.uniform(1.2, 2.2))
+        rd = float(rng.uniform(5.5, 8.5))
+        z0 = float(rng.uniform(1.8, 2.8))
         disk = np.exp(-r_maj / rd) / (np.cosh(r_min / z0)**2)
 
-        rb = float(rng.uniform(1.8, 3.0))
-        bulge = float(rng.uniform(0.4, 0.8)) * np.exp(
-            -2.0 * (np.maximum(1e-4, np.sqrt(xr**2 + (yr / 0.4)**2) / rb))**0.5
+        rb = float(rng.uniform(1.5, 2.5))
+        bulge = float(rng.uniform(0.5, 0.9)) * np.exp(
+            -2.2 * (np.maximum(0.1, np.sqrt(xr**2 + (yr / 0.4)**2) / rb))**0.5
         )
         dust = 1.0 - 0.25 * np.exp(-r_min / 0.8) * np.exp(-r_maj / (0.8 * rd))
-        img = (bulge + disk) * dust
+        env = 0.15 * np.exp(-r_center / 8.0)
+        img = (bulge + disk) * dust + env
 
     else:
         # Merger: two overlapping blobs with random offset and brightness ratio + curved tidal tail
-        d = float(rng.uniform(6.0, 14.0))
+        d = float(rng.uniform(5.0, 9.0))
         phi_d = float(rng.uniform(0.0, 2.0 * np.pi))
         c1x = float(cx - 0.5 * d * np.cos(phi_d))
         c1y = float(cy - 0.5 * d * np.sin(phi_d))
@@ -104,9 +107,9 @@ def make_galaxy(rng: np.random.Generator, cls: int) -> np.ndarray:
 
         r1 = np.sqrt((x - c1x)**2 + (y - c1y)**2)
         r2 = np.sqrt((x - c2x)**2 + (y - c2y)**2)
-        b1 = np.exp(-2.0 * (np.maximum(1e-4, r1 / float(rng.uniform(3.5, 6.0))))**0.5)
-        ratio = float(rng.uniform(0.35, 0.90))
-        b2 = ratio * np.exp(-2.0 * (np.maximum(1e-4, r2 / float(rng.uniform(3.0, 5.5))))**0.5)
+        b1 = float(rng.uniform(1.0, 1.5)) * np.exp(-2.0 * (np.maximum(0.1, r1 / float(rng.uniform(2.5, 4.0))))**0.5)
+        ratio = float(rng.uniform(0.45, 0.90))
+        b2 = ratio * np.exp(-2.0 * (np.maximum(0.1, r2 / float(rng.uniform(2.5, 3.5))))**0.5)
 
         # Faint curved tidal tail
         n_steps = 35
@@ -124,20 +127,15 @@ def make_galaxy(rng: np.random.Generator, cls: int) -> np.ndarray:
 
         img = b1 + b2 + tail_img
 
-    # Calibrate total profile flux to overlapping range [180, 320] so total flux does not trivially leak class label
+    img = img * aperture
+
+    # Total-flux normalization plus a fixed global scale
     tot = float(np.sum(img))
     if tot > 1e-4:
-        img = img * (float(rng.uniform(180.0, 320.0)) / tot)
+        img = img / tot
 
-    # Poisson noise (random gain 70-250) + Gaussian read noise 0.035
-    gain = float(rng.uniform(70.0, 250.0))
-    photons = rng.poisson(np.maximum(0.0, img * gain)) / gain
-    noisy = photons + rng.normal(0.0, 0.035, size=(size, size))
-
-    # Normalize by 99.5th percentile, clip to [0, 1]
-    p995 = float(np.percentile(noisy, 99.5))
-    if p995 > 1e-6:
-        noisy = noisy / p995
+    # Add Gaussian noise with the SAME absolute sigma for every class
+    noisy = (img * 125.0) + rng.normal(0.0, 0.025, size=(size, size))
     return np.clip(noisy, 0.0, 1.0).astype(np.float32)
 
 

@@ -9,6 +9,8 @@ __pycache__/
 .pytest_cache/
 .coverage
 htmlcov/
+.mypy_cache/
+.ruff_cache/
 
 # Jupyter Notebook checkpoints
 .ipynb_checkpoints/
@@ -25,7 +27,7 @@ dist/
 *.spec
 
 # Project runtime data, logs, and caches
-mission_state_*.json
+mission_state*.json
 artifacts/cache/
 leaderboard.csv
 leaderboard.html

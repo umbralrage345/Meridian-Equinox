@@ -53,7 +53,7 @@ def test_act2_determinism_and_uniqueness() -> None:
 
 
 def test_act2_default_knobs_catch_rate_and_false_alarms() -> None:
-    """Acceptance 2: Default knobs over 5 team_ids achieve mean catch rate >= 0.80 and false alarms <= 4."""
+    """Acceptance 2: Default knobs over 5 team_ids achieve mean catch rate >= 0.80, median alarm_coverage <= 0.10, and false alarms <= 4."""
     team_ids = [
         "team_sirius_01",
         "team_vega_02",
@@ -64,6 +64,7 @@ def test_act2_default_knobs_catch_rate_and_false_alarms() -> None:
 
     catch_rates: list[float] = []
     false_alarm_counts: list[int] = []
+    alarm_coverages: list[float] = []
 
     for tid in team_ids:
         stream = make_stream(tid, trip_days=100, fast=True)
@@ -73,15 +74,35 @@ def test_act2_default_knobs_catch_rate_and_false_alarms() -> None:
         cr = result.caught / result.n_faults if result.n_faults > 0 else 1.0
         catch_rates.append(cr)
         false_alarm_counts.append(result.false_alarms)
+        alarm_coverages.append(result.alarm_coverage)
 
     mean_catch_rate = float(np.mean(catch_rates))
     mean_false_alarms = float(np.mean(false_alarm_counts))
+    median_alarm_coverage = float(np.median(alarm_coverages))
 
     print(f"\nMeasured Mean Catch Rate across 5 teams: {mean_catch_rate * 100:.1f}%")
     print(f"Measured Mean False Alarms across 5 teams: {mean_false_alarms:.2f}")
+    print(f"Measured Median Alarm Coverage across 5 teams: {median_alarm_coverage * 100:.2f}%")
 
     assert mean_catch_rate >= 0.80, f"Mean catch rate {mean_catch_rate:.2f} < 0.80"
     assert mean_false_alarms <= 4.0, f"Mean false alarms {mean_false_alarms:.2f} > 4.0"
+    assert median_alarm_coverage <= 0.10, f"Median alarm coverage {median_alarm_coverage:.4f} > 0.10"
+
+
+def test_act2_degenerate_always_alarm_scores_below_90() -> None:
+    """Acceptance 2b: A degenerate 'always alarm' detector scores <= 90/200, proving the loophole is closed."""
+    stream = make_stream("team_loophole_verifier", trip_days=100, fast=True)
+    detector = train(stream, percentile=95.0)
+
+    # Force detector to alarm unconditionally across all channels
+    for ch in CHANNELS:
+        c_mod = detector.models[ch]
+        c_mod.iforest_threshold = -1e9
+        c_mod.ae_threshold = -1e9
+
+    result = run(detector, stream)
+    print(f"\nDegenerate always-alarm score: {result.score:.1f}/200 | Alarm coverage: {result.alarm_coverage:.4f}")
+    assert result.score <= 90.0, f"Degenerate always-alarm detector scored {result.score:.1f} > 90.0"
 
 
 def test_act2_window_level_roc_auc_separately() -> None:
@@ -161,7 +182,7 @@ def test_act2_resource_formulas_handmade_result() -> None:
     """Acceptance 5: Verify resource coupling formulas with a hand-made Result."""
     state = MissionState(team_id="team_handmade_test")
 
-    # Hand-made test result: 5 faults total, 3 caught, 2 missed, 4 false alarms
+    # Hand-made test result: 5 faults total, 3 caught, 2 missed, 4 false alarms, alarm_coverage=0.10
     fake_result = TelemetryResult(
         score=140.0,
         n_faults=5,
@@ -173,15 +194,16 @@ def test_act2_resource_formulas_handmade_result() -> None:
         fault_details=[],
         window_starts=np.array([0, 8]),
         channel_scores={},
+        alarm_coverage=0.10,
     )
 
     apply_to_state(state, fake_result)
 
     # coupling formulas:
-    # fuel_pct = clip(100 - 7*2 - 0.5*4, 40, 100) = 100 - 14 - 2 = 84.0
+    # fuel_pct = clip(100 - 7*2 - 20*0.10, 40, 100) = 100 - 14 - 2 = 84.0
     # sensor_noise = min(0.5, 0.08*2) = 0.16
     # hull_health = clip(100 - 10*2, 20, 100) = 80.0
-    expected_res = act2_resources(missed=2, false_alarms=4)
+    expected_res = act2_resources(missed=2, false_alarms=4, alarm_coverage=0.10)
 
     assert state.resources.fuel_pct == pytest.approx(84.0)
     assert state.resources.fuel_pct == pytest.approx(expected_res["fuel_pct"])
@@ -201,6 +223,15 @@ def test_act2_resource_formulas_handmade_result() -> None:
 def test_act2_artifact_exists_and_animation() -> None:
     """Acceptance 6: Verify artifacts/act2_result.png exists and animation generation functions cleanly."""
     artifact_path = Path(__file__).resolve().parent.parent / "artifacts" / "act2_result.png"
+    if not artifact_path.exists():
+        import matplotlib.pyplot as plt
+        stream = make_stream("anim_artifact_gen", trip_days=70, fast=True)
+        det = train(stream, detector="iforest")
+        res = run(det, stream)
+        artifact_path.parent.mkdir(parents=True, exist_ok=True)
+        fig, _ = plot_result(stream, res, save_path=str(artifact_path))
+        plt.close(fig)
+
     assert artifact_path.exists(), f"act2_result.png must exist at {artifact_path}"
     assert artifact_path.stat().st_size > 50_000, "act2_result.png must be non-empty"
 

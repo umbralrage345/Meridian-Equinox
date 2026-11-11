@@ -21,4 +21,16 @@
 - Windows junction virtualenv isolation: Employed NTFS directory junctions (cmd /c mklink /J) to link pre-installed dependencies into fresh virtualenvs without network downloads.
 - PyTorch conditional test guard: Added has_torch() helper to act3_galaxy and guarded PyTorch-specific assertions in test_act3 so tests cleanly verify the fallback MLPClassifier when torch extra is omitted.
 - Git ignore rule scoping: Scoped .gitignore exclusions to preserve essential workshop release assets (pre-trained checkpoint, visual artifacts, demo HTML) while ignoring disposable runtime states, logs, and artifacts/cache/.
+- Capped process jobs: Added get_max_jobs() dynamically bounding worker parallelism to min(cap, cpu_count, affinity) to respect multi-tenant and low-core environments.
+- Single-pass NpzFile slicing: Stored numpy array reference once before list comprehension in Act 1 cache loading to eliminate repetitive zlib multi-decompression allocations (reducing peak memory by 3.5 GB).
+- Clean venv verification without junctions: Rewrote tools/test_fresh_virtualenv.py to use pure pip install .[dev] from package index / wheel cache in isolated temporary environments for true clean install testing.
+- Selfcheck non-failing runtime overrun: Defined timing overruns in meridian.selfcheck as warnings (exit 0) reserving exit 1 strictly for functional failures or exceptions to prevent hardware aborts.
+- Reduced animation payload: Limited Act 4 lander animation frames to 45 and reduced canvas dimensions (4.5x3.8 in, 60 dpi) ensuring generated HTML payloads stay strictly under 600 KB (measured 488 KB).
+- Interactive guessing game with skip support: Provided guesses list initialised to None across all acts, allowing learners to optionally submit visual predictions while permitting unedited runs via graceful skipping.
+- Act 2 false alarm budget division and calibration: Split training stream 70/30 (fit 70%, calibrate 30%), dividing false alarm alpha by n_detectors * n_channels (alpha_test = (1 - pct/100) / n_tests), and scaled empirical thresholds (1.15 for IsolationForest, 2.5 for Autoencoder MSE) to account for extreme value sampling maximum across full mission streams vs held-out calibration chunks.
+- Degenerate alarm loophole closure: Required alarm episode onset to occur within [start - window, end + 100] of a fault, preventing pre-existing uninterrupted false alarms from claiming detection credit and capping degenerate 'always alarm' detectors at 0/200.
+- Act 4 base64 GIF renderer: Implemented standalone 640x400 matplotlib-to-PIL GIF renderer with adaptive 64-color palette quantization, 15-frame held touchdown/crash banner, dynamic telemetry HUD, thruster flames/puffs, and optional side-by-side random baseline comparison.
+- Act 3 aperture and border uniformity: Scaled procedural galaxy flux by 125.0 and zeroed emissions outside radius 20 with pure Gaussian noise, equalizing border statistics and defeating shortcut linear classifiers while keeping TinyCNN accuracy within 85-95%.
+- Act 1 stratified depth gallery: Stratified sample exoplanet generation across shallow (~2.5 ppt), medium (~6.5 ppt), and deep (~11 ppt) transit depth bands, and phase-folded flattened flux to clearly reveal box transit dips.
+
 
